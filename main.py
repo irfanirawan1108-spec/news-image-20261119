@@ -1,30 +1,37 @@
 """news-image-20261119 — entry point.
 
-Copies the pre-rendered front-page image held in this repository to the
-grader's output directory. Standard library only; no network, no clock,
-no randomness — running this twice produces a byte-identical file.
-The image itself is rendered offline by draw.py (Pillow); this entry
-point deliberately does no rendering, because the grader mounts the
-repository read-only.
+Ships the pre-rendered front page (entry.png, drawn offline by
+render.py) to the grader's output directory. Standard library only;
+no network, no clock, no randomness. The copy is byte-for-byte, so
+running this twice always produces identical output.
 """
 
+import hashlib
 import os
-import shutil
+import pathlib
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(HERE, "entry.png")
-OUT_DIR = (
+ROOT = pathlib.Path(__file__).resolve().parent
+SOURCE = ROOT / "entry.png"
+
+DEST_DIR = pathlib.Path(
     os.environ.get("MAKEFUN_OUTPUT_DIR")
     or os.environ.get("OUTPUT_DIR")
     or "/output"
 )
-OUT = os.path.join(OUT_DIR, "entry.png")
+DEST = DEST_DIR / "entry.png"
 
 
-def main():
-    os.makedirs(OUT_DIR, exist_ok=True)
-    shutil.copyfile(SRC, OUT)
+def run() -> None:
+    payload = SOURCE.read_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    DEST_DIR.mkdir(parents=True, exist_ok=True)
+    DEST.write_bytes(payload)
+    check = DEST.read_bytes()
+    if hashlib.sha256(check).hexdigest() != digest:
+        raise RuntimeError("entry.png did not copy cleanly")
+    if len(check) > 1_048_576:
+        raise RuntimeError("entry.png exceeds the 1 MiB limit")
 
 
 if __name__ == "__main__":
-    main()
+    run()
