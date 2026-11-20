@@ -1,30 +1,25 @@
 #!/usr/bin/env python3
-"""news-image-20261119 round 3 — front page renderer (Pillow).
+"""Render the round-4 front page for Thursday 19 November 2026.
 
-Draws a 1024x1024 newspaper front page summing up Thursday
-19 November 2026: fourteen stories, every one checked against
-same-day reporting (ICJ verdict, Shenzhen summit, Anthropic IPO,
-Gaza, the Gulf, Bangladesh, GTA VI, the Van Gogh record, plus six
-briefs). Run: python3 render.py  ->  writes entry.png next to it.
-Deterministic: no network, no clock, no randomness.
+Newspaper front page, 1024x1024, drawn with PIL. Eight main stories.
+Copy is kept to what was reported that day: no vote counts, no intraday
+prices, no superlatives the reporting did not carry, no dated stories.
+Run: python3 render.py  (writes entry.png)
 """
-
+import math
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1024, 1024
-MARGIN = 26
-GUT = 12
+W = H = 1024
+PAPER = (247, 243, 232)
+INK = (17, 17, 17)
+RED = (176, 30, 36)
+NAVY = (31, 56, 100)
+GOLD = (217, 164, 65)
+GRAY = (102, 102, 102)
+SKY = (188, 216, 234)
+SAND = (217, 196, 154)
 
-PAPER = (248, 244, 233)
-INK = (26, 26, 26)
-RED = (178, 34, 27)
-NAVY = (22, 50, 79)
-GRAY = (96, 92, 82)
-RULE = (26, 26, 26)
-FAINT = (196, 190, 174)
-
-SERIF = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
-SERIF_R = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"
+SERIF_B = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
 SANS = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 SANS_B = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
@@ -33,415 +28,256 @@ def font(path, size):
     return ImageFont.truetype(path, size)
 
 
-def wrap(d, text, fnt, max_w):
-    """Greedy word wrap by pixel width; returns a list of lines."""
+def wrap(d, text, f, max_w):
+    words = text.split()
     lines, cur = [], ""
-    for word in text.split(" "):
-        trial = word if not cur else cur + " " + word
-        if d.textlength(trial, font=fnt) <= max_w or not cur:
+    for w in words:
+        trial = (cur + " " + w).strip()
+        if d.textlength(trial, font=f) <= max_w or not cur:
             cur = trial
         else:
             lines.append(cur)
-            cur = word
+            cur = w
     if cur:
         lines.append(cur)
     return lines
 
 
-def block(d, x, y, w, text, fnt, fill=INK, leading=None):
-    """Draw wrapped text; return the y just below the last line."""
-    leading = leading if leading is not None else int(fnt.size * 1.22)
-    for line in wrap(d, text, fnt, w):
-        d.text((x, y), line, font=fnt, fill=fill)
-        y += leading
-    return y
-
-
-def kick(d, x, y, text, size=15):
+def kicker(d, x, y, text, size=16):
     d.text((x, y), text, font=font(SANS_B, size), fill=RED)
     return y + size + 4
 
 
-def head(d, x, y, w, text, size=30):
-    return block(d, x, y, w, text, font(SERIF, size), INK,
-                 leading=int(size * 1.08))
+def headline(d, x, y, text, size, max_w):
+    f = font(SERIF_B, size)
+    lh = int(size * 1.22)
+    for line in wrap(d, text, f, max_w):
+        d.text((x, y), line, font=f, fill=INK)
+        y += lh
+    return y
 
 
-def deck(d, x, y, w, text, size=17):
-    return block(d, x, y, w, text, font(SERIF_R, size), (52, 48, 42),
-                 leading=int(size * 1.28))
+def deck(d, x, y, text, size, max_w):
+    f = font(SANS, size)
+    lh = int(size * 1.35)
+    for line in wrap(d, text, f, max_w):
+        d.text((x, y), line, font=f, fill=INK)
+        y += lh
+    return y
 
 
-def frame(d, box, fill, outline=INK, width=2):
-    d.rectangle(box, fill=fill, outline=outline, width=width)
+def rule(d, y, x0=28, x1=996, width=2):
+    d.line([(x0, y), (x1, y)], fill=INK, width=width)
 
 
 def star(d, cx, cy, r, fill):
-    """Five-point star centred at (cx, cy)."""
-    import math
     pts = []
     for i in range(10):
         ang = -math.pi / 2 + i * math.pi / 5
-        rr = r if i % 2 == 0 else r * 0.42
+        rr = r if i % 2 == 0 else r * 0.4
         pts.append((cx + rr * math.cos(ang), cy + rr * math.sin(ang)))
     d.polygon(pts, fill=fill)
 
 
-def clipped(img, d, func, box):
-    """Render an art panel onto a throwaway layer, then paste it.
-
-    Keeps every stroke inside the panel: a palm frond or a branch
-    that runs past the panel edge is cut there, never over the text.
-    """
-    x0, y0, x1, y1 = box
-    tmp = Image.new("RGB", (x1 - x0, y1 - y0), PAPER)
-    td = ImageDraw.Draw(tmp)
-    func(td, (0, 0, x1 - x0, y1 - y0))
-    img.paste(tmp, (x0, y0))
-    d.rectangle(box, outline=INK, width=2)
-
-
-# ---------------------------------------------------------------- art panels
-
-def art_scales(d, box):
-    """Scales of justice on deep blue."""
-    x0, y0, x1, y1 = box
-    frame(d, box, (24, 62, 110))
-    gold = (212, 175, 55)
-    cx = (x0 + x1) // 2
-    top = y0 + 26
-    base = y1 - 26
-    d.rectangle([cx - 5, top, cx + 5, base], fill=gold)
-    d.rectangle([cx - 52, base, cx + 52, base + 10], fill=gold)
-    d.rectangle([cx - 118, top + 8, cx + 118, top + 16], fill=gold)
-    d.ellipse([cx - 12, y0 + 12, cx + 12, y0 + 36], fill=gold)
-    for sgn in (-1, 1):
-        px = cx + sgn * 96
-        d.line([cx + sgn * 118, top + 12, px - 34, base - 34], fill=gold, width=3)
-        d.line([cx + sgn * 118, top + 12, px + 34, base - 34], fill=gold, width=3)
-        d.line([cx + sgn * 118, top + 12, px, base - 34], fill=gold, width=3)
-        d.pieslice([px - 36, base - 40, px + 36, base + 4], 0, 180, fill=gold)
-        d.rectangle([px - 36, base - 40, px + 36, base - 34], fill=gold)
-
-
-def art_flags(d, box):
-    """US, Chinese and Russian flags in a row."""
-    x0, y0, x1, y1 = box
-    frame(d, box, (228, 234, 240))
-    fw, fh = 118, 64
-    gap = 14
-    total = 3 * fw + 2 * gap
-    sx = x0 + (x1 - x0 - total) // 2
-    sy = y0 + 4
-    # United States: stripes + canton
-    ux = sx
-    for i in range(7):
-        d.rectangle([ux, sy + i * (fh // 7), ux + fw, sy + (i + 1) * (fh // 7)],
-                    fill=(178, 34, 52) if i % 2 == 0 else (255, 255, 255))
-    d.rectangle([ux, sy, ux + 46, sy + 36], fill=(30, 50, 110))
+def flag_us(d, x, y, w, h):
+    d.rectangle([x, y, x + w, y + h], fill=(255, 255, 255), outline=INK, width=1)
+    for i in range(0, 7, 2):
+        d.rectangle([x, y + i * h / 7, x + w, y + (i + 1) * h / 7], fill=(178, 34, 52))
+    cw, ch = w * 0.4, h * 4 / 7
+    d.rectangle([x, y, x + cw, y + ch], fill=(60, 59, 110))
     for r in range(4):
         for c in range(5):
-            d.ellipse([ux + 6 + c * 8, sy + 5 + r * 8, ux + 9 + c * 8, sy + 8 + r * 8],
-                      fill=(255, 255, 255))
-    # China: red field, one big star + four small
-    cx = sx + fw + gap
-    d.rectangle([cx, sy, cx + fw, sy + fh], fill=(222, 41, 16))
-    star(d, cx + 24, sy + 20, 13, (255, 222, 0))
-    for sx2, sy2 in [(54, 10), (65, 20), (65, 32), (54, 40)]:
-        star(d, cx + sx2, sy + sy2, 5, (255, 222, 0))
-    # Russia: white / blue / red tricolour
-    rx = sx + 2 * (fw + gap)
-    for i, col in enumerate([(255, 255, 255), (0, 57, 166), (213, 0, 50)]):
-        d.rectangle([rx, sy + i * (fh // 3), rx + fw, sy + (i + 1) * (fh // 3)],
-                    fill=col)
-    d.text((x0 + (x1 - x0) // 2, y1 - 18), "TRUMP  ·  XI  ·  PUTIN",
-           font=font(SANS_B, 13), fill=INK, anchor="ma")
+            d.ellipse([x + 4 + c * cw / 5, y + 3 + r * ch / 4,
+                       x + 8 + c * cw / 5, y + 7 + r * ch / 4], fill=(255, 255, 255))
 
 
-def art_ipo(d, box):
-    """Three bars: offer $83, open $111.50, close $97.17."""
-    x0, y0, x1, y1 = box
-    frame(d, box, (255, 255, 255))
-    vals = [("OFFER", 83.0, (150, 150, 150)), ("OPEN", 111.50, (22, 50, 79)),
-            ("CLOSE", 97.17, (178, 34, 27))]
-    base = y1 - 22
-    top = y0 + 16
-    bw = 74
-    span = (x1 - x0 - 2 * 26 - 3 * bw) // 2
-    for i, (lab, val, col) in enumerate(vals):
-        bx = x0 + 26 + i * (bw + span)
-        bh = int((val / 115.0) * (base - top))
-        d.rectangle([bx, base - bh, bx + bw, base], fill=col)
-        d.text((bx + bw // 2, base - bh - 16), "$%.2f" % val,
-               font=font(SANS_B, 13), fill=INK, anchor="ma")
-        d.text((bx + bw // 2, base + 5), lab, font=font(SANS_B, 12),
-               fill=GRAY, anchor="ma")
+def flag_cn(d, x, y, w, h):
+    d.rectangle([x, y, x + w, y + h], fill=(222, 41, 16), outline=INK, width=1)
+    star(d, x + w * 0.22, y + h * 0.3, h * 0.22, (255, 222, 0))
+    for sx, sy in [(0.55, 0.15), (0.68, 0.28), (0.68, 0.48), (0.55, 0.62)]:
+        star(d, x + w * sx, y + h * sy, h * 0.08, (255, 222, 0))
 
 
-def art_gaza(d, box):
-    """Tank crossing a dashed ceasefire line; figures fleeing."""
-    x0, y0, x1, y1 = box
-    frame(d, box, (203, 224, 238))
-    horizon = y0 + int((y1 - y0) * 0.62)
-    d.rectangle([x0, horizon, x1, y1], fill=(232, 214, 170))
-    d.line([x0, horizon, x1, horizon], fill=(150, 120, 70), width=2)
-    # dashed yellow line, vertical, near the middle
-    lx = x0 + int((x1 - x0) * 0.58)
-    for yy in range(y0 + 6, horizon, 13):
-        d.line([lx, yy, lx, yy + 7], fill=(222, 178, 0), width=4)
-    # tank straddling the line
-    tx, ty = x0 + int((x1 - x0) * 0.26), horizon - 30
-    d.rectangle([tx, ty, tx + 108, ty + 18], fill=(38, 44, 50))
-    d.rectangle([tx + 68, ty - 7, tx + 138, ty - 1], fill=(38, 44, 50))
-    d.rectangle([tx + 14, ty + 18, tx + 94, ty + 24], fill=(24, 28, 34))
-    for i in range(4):
-        d.ellipse([tx + 6 + i * 22, ty + 25, tx + 20 + i * 22, ty + 39],
-                  fill=(90, 92, 96), outline=(24, 28, 34))
-    # fleeing figures, left of the line
-    for fx, fh in [(x0 + 26, 24), (x0 + 52, 20), (x0 + 76, 17)]:
-        fy = horizon - fh
-        d.ellipse([fx, fy, fx + 8, fy + 8], fill=(26, 26, 26))
-        d.line([fx + 4, fy + 8, fx + 4, fy + 18], fill=(26, 26, 26), width=2)
-        d.line([fx + 4, fy + 11, fx - 4, fy + 17], fill=(26, 26, 26), width=2)
-        d.line([fx + 4, fy + 11, fx + 11, fy + 8], fill=(26, 26, 26), width=2)
-        d.line([fx + 4, fy + 18, fx - 3, fy + 28], fill=(26, 26, 26), width=2)
-        d.line([fx + 4, fy + 18, fx + 10, fy + 28], fill=(26, 26, 26), width=2)
-    d.text((x0 + 8, y0 + 5), "YELLOW LINE", font=font(SANS_B, 11),
-           fill=(150, 110, 0))
+def flag_ru(d, x, y, w, h):
+    d.rectangle([x, y, x + w, y + h], outline=INK, width=1)
+    d.rectangle([x, y, x + w, y + h / 3], fill=(255, 255, 255))
+    d.rectangle([x, y + h / 3, x + w, y + 2 * h / 3], fill=(0, 57, 166))
+    d.rectangle([x, y + 2 * h / 3, x + w, y + h], fill=(213, 0, 50))
 
 
-def art_gulf(d, box):
-    """Oil tanker on a blue strait with a warning mark."""
-    x0, y0, x1, y1 = box
-    frame(d, box, (24, 90, 130))
-    # land masses top and bottom
-    d.polygon([(x0, y0), (x1, y0), (x1, y0 + 18), (x0 + 120, y0 + 30),
-               (x0, y0 + 20)], fill=(210, 190, 150))
-    d.polygon([(x0, y1), (x1, y1), (x1, y1 - 16), (x0 + 200, y1 - 32),
-               (x0, y1 - 20)], fill=(210, 190, 150))
-    d.text((x0 + 10, y0 + 5), "STRAIT OF HORMUZ", font=font(SANS_B, 11),
-           fill=(24, 50, 80))
-    # tanker
-    tx, ty = x0 + 40, y0 + int((y1 - y0) * 0.40)
-    d.rectangle([tx, ty, tx + 150, ty + 18], fill=(150, 40, 32))
-    d.rectangle([tx + 104, ty - 14, tx + 132, ty], fill=(240, 238, 230))
-    d.rectangle([tx + 18, ty - 8, tx + 84, ty], fill=(240, 238, 230))
-    d.line([tx - 6, ty + 18, tx + 156, ty + 18], fill=(255, 255, 255), width=2)
-    # warning triangle
-    wx, wy = x1 - 52, y0 + 40
-    d.polygon([(wx, wy - 18), (wx - 18, wy + 12), (wx + 18, wy + 12)],
-              fill=(255, 196, 0), outline=(150, 90, 0))
-    d.text((wx, wy - 2), "!", font=font(SANS_B, 16), fill=(150, 40, 32),
-           anchor="ma")
+def scales(d, x, y, w, h):
+    d.rectangle([x, y, x + w, y + h], fill=NAVY)
+    cx, top, bot = x + w / 2, y + 22, y + h - 26
+    d.rectangle([cx - 5, top, cx + 5, bot], fill=GOLD)
+    d.rectangle([x + 40, bot, x + w - 40, bot + 10], fill=GOLD)
+    d.rectangle([cx - 105, top + 14, cx + 105, top + 22], fill=GOLD)
+    d.ellipse([cx - 12, top - 10, cx + 12, top + 14], fill=GOLD)
+    for sx in (cx - 105, cx + 105):
+        d.line([(sx, top + 18), (sx - 26, bot - 34)], fill=GOLD, width=3)
+        d.line([(sx, top + 18), (sx + 26, bot - 34)], fill=GOLD, width=3)
+        d.line([(sx - 26, bot - 34), (sx + 26, bot - 34)], fill=GOLD, width=3)
+        d.pieslice([sx - 30, bot - 36, sx + 30, bot + 8], 0, 180, fill=GOLD)
 
 
-def art_dhaka(d, box):
-    """Building silhouette with flames against a dusk sky."""
-    x0, y0, x1, y1 = box
-    frame(d, box, (58, 44, 66))
-    # dusk band
-    d.rectangle([x0, y0, x1, y0 + 18], fill=(120, 62, 62))
-    # buildings
-    for bx, bw, bh in [(22, 66, 42), (100, 52, 56), (164, 74, 36)]:
-        d.rectangle([x0 + bx, y1 - bh, x0 + bx + bw, y1], fill=(30, 26, 34))
-        for wy in range(y1 - bh + 9, y1 - 9, 16):
-            for wx in range(x0 + bx + 8, x0 + bx + bw - 7, 15):
-                d.rectangle([wx, wy, wx + 6, wy + 7], fill=(240, 200, 90))
-    # flame over the middle building
-    fx, fy = x0 + 126, y1 - 56
-    d.polygon([(fx - 20, fy + 20), (fx - 6, fy - 2), (fx, fy - 16),
-               (fx + 8, fy - 2), (fx + 20, fy + 20)], fill=(255, 122, 26))
-    d.polygon([(fx - 10, fy + 20), (fx - 3, fy + 6), (fx, fy - 6),
-               (fx + 4, fy + 6), (fx + 10, fy + 20)], fill=(255, 214, 64))
+def tank(d, x, y, w, h):
+    d.rectangle([x, y, x + w, y + h], fill=SKY)
+    gy = y + h * 0.62
+    d.rectangle([x, gy, x + w, y + h], fill=SAND)
+    d.line([(x + 8, gy + 26), (x + w - 8, gy + 26)], fill=(230, 200, 40), width=4)
+    bx, by, bw, bh = x + w * 0.30, gy - 34, w * 0.58, 30
+    d.polygon([(bx, by + bh), (bx, by + 8), (bx + 18, by),
+               (bx + bw, by), (bx + bw, by + bh)], fill=(40, 44, 48))
+    d.line([(bx + bw - 6, by + 10), (bx + bw + 34, by + 2)], fill=(40, 44, 48), width=7)
+    for i in range(6):
+        wx = bx + 8 + i * (bw - 16) / 5
+        d.ellipse([wx - 8, by + bh - 4, wx + 8, by + bh + 12], fill=(90, 90, 90),
+                  outline=INK, width=2)
+    for fx in (x + 26, x + 52):
+        d.ellipse([fx - 5, gy - 26, fx + 5, gy - 16], fill=INK)
+        d.line([(fx, gy - 16), (fx, gy + 2)], fill=INK, width=3)
+        d.line([(fx, gy - 8), (fx - 8, gy + 2)], fill=INK, width=3)
+        d.line([(fx, gy - 8), (fx + 8, gy + 2)], fill=INK, width=3)
 
 
-def art_vice(d, box):
-    """Vice City sunset: sun, palms, skyline."""
-    x0, y0, x1, y1 = box
-    frame(d, box, (255, 255, 255))
-    # sunset bands
-    bands = [(255, 122, 56), (255, 96, 110), (196, 84, 150), (90, 60, 130)]
-    bh = (y1 - y0) // 4
-    for i, col in enumerate(bands):
-        d.rectangle([x0, y0 + i * bh, x1, y0 + (i + 1) * bh], fill=col)
-    # sun
-    cx, cy = (x0 + x1) // 2, y0 + int((y1 - y0) * 0.42)
-    d.ellipse([cx - 46, cy - 46, cx + 46, cy + 46], fill=(255, 214, 110))
-    # skyline
-    for bx, bw, bh2 in [(0, 52, 52), (60, 40, 78), (108, 62, 44), (180, 44, 66),
-                        (232, 56, 40)]:
-        d.rectangle([x0 + bx, y1 - bh2, x0 + bx + bw, y1], fill=(34, 24, 52))
-    # palms
-    for px, lean in [(x0 + 250, -18), (x1 - 30, 14)]:
-        py = y1
-        d.line([px, py, px + lean, py - 74], fill=(24, 18, 40), width=6)
-        for k in range(5):
-            ang = -0.4 - k * 0.45
-            import math
-            ex = px + lean + int(34 * math.cos(ang))
-            ey = py - 74 + int(30 * math.sin(ang)) - k * 2
-            d.line([px + lean, py - 74, ex, ey], fill=(24, 18, 40), width=4)
-    d.text((x0 + 12, y0 + 8), "VICE CITY", font=font(SANS_B, 13),
-           fill=(255, 255, 255))
+def bridge(d, x, y, w, h):
+    d.rectangle([x, y, x + w, y + h], fill=(196, 222, 238))
+    sy = y + h * 0.62
+    d.rectangle([x, sy, x + w, y + h], fill=(90, 140, 175))
+    ex, ey = x + w * 0.62, y + 26
+    d.ellipse([ex - 22, ey - 14, ex + 22, ey + 30], fill=(232, 120, 30))
+    d.ellipse([ex - 11, ey - 4, ex + 11, ey + 18], fill=(245, 200, 60))
+    d.line([(x + 6, sy - 6), (x + w - 6, sy - 6)], fill=(60, 60, 60), width=5)
+    for px in (0.2, 0.5, 0.8):
+        d.line([(x + w * px, sy - 6), (x + w * px, sy - 30)], fill=(60, 60, 60), width=4)
+        d.line([(x + w * px, sy - 30), (x + w * px - 16, sy - 6)], fill=(60, 60, 60), width=2)
+        d.line([(x + w * px, sy - 30), (x + w * px + 16, sy - 6)], fill=(60, 60, 60), width=2)
 
 
-def art_vangogh(d, box):
-    """Flowering chestnut branch in a gold frame."""
-    x0, y0, x1, y1 = box
-    frame(d, box, (214, 230, 196), outline=(176, 138, 44), width=6)
-    # branch
-    d.line([x0 + 16, y1 - 18, x0 + 150, y0 + 52], fill=(96, 62, 30), width=7)
-    d.line([x0 + 90, y1 - 60, x0 + 210, y0 + 30], fill=(96, 62, 30), width=5)
-    d.line([x0 + 60, y1 - 90, x0 + 250, y0 + 96], fill=(96, 62, 30), width=4)
-    # blossom clusters: white puffs with yellow centres
-    import random
-    rnd = random.Random(19111926)
-    for _ in range(46):
-        bx = rnd.randint(x0 + 40, x1 - 30)
-        by = rnd.randint(y0 + 26, y1 - 40)
-        r = rnd.randint(9, 15)
-        d.ellipse([bx - r, by - r, bx + r, by + r], fill=(250, 246, 232),
-                  outline=(214, 200, 160))
-        d.ellipse([bx - 3, by - 3, bx + 3, by + 3], fill=(232, 178, 40))
-    d.text((x0 + 12, y1 - 26), "1890", font=font(SERIF, 16), fill=(96, 62, 30))
+def sunset(d, x, y, w, h):
+    for i, col in enumerate([(244, 130, 60), (238, 90, 90), (150, 70, 130), (60, 50, 110)]):
+        d.rectangle([x, y + i * h / 4, x + w, y + (i + 1) * h / 4], fill=col)
+    d.ellipse([x + w * 0.36, y + h * 0.10, x + w * 0.72, y + h * 0.62], fill=(250, 210, 90))
+    base = y + h * 0.72
+    for bx, bw, bh in [(0.02, 0.20, 0.30), (0.24, 0.14, 0.42), (0.40, 0.18, 0.26),
+                       (0.60, 0.12, 0.38), (0.74, 0.24, 0.22)]:
+        d.rectangle([x + w * bx, base - h * bh, x + w * (bx + bw), y + h], fill=(30, 25, 45))
+    d.line([(x + w * 0.86, y + h * 0.30), (x + w * 0.88, y + h * 0.72)], fill=(30, 25, 45), width=5)
+    for a in (-50, -20, 10, 40):
+        rad = math.radians(a - 90)
+        d.line([(x + w * 0.86, y + h * 0.32),
+                (x + w * 0.86 + 26 * math.cos(rad), y + h * 0.32 + 26 * math.sin(rad))],
+               fill=(30, 25, 45), width=4)
 
 
-# ---------------------------------------------------------------- stories
+def blossom(d, x, y, w, h):
+    d.rectangle([x, y, x + w, y + h], fill=(214, 230, 200))
+    d.line([(x + 8, y + h - 8), (x + w * 0.55, y + 12)], fill=(110, 70, 40), width=7)
+    d.line([(x + w * 0.30, y + h * 0.62), (x + w * 0.85, y + h * 0.30)], fill=(110, 70, 40), width=5)
+    spots = [(0.25, 0.62), (0.38, 0.45), (0.52, 0.30), (0.62, 0.18), (0.72, 0.42),
+             (0.82, 0.55), (0.45, 0.62), (0.58, 0.52), (0.30, 0.30), (0.68, 0.68),
+             (0.15, 0.45), (0.88, 0.30)]
+    for sx, sy in spots:
+        cx, cy = x + w * sx, y + h * sy
+        d.ellipse([cx - 11, cy - 11, cx + 11, cy + 11], fill=(250, 246, 235),
+                  outline=(200, 190, 170), width=1)
+        d.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=(240, 200, 60))
 
-LEAD = ("THE HAGUE · JUSTICE",
-        "World court finds Myanmar guilty of genocide",
-        "The ICJ rules 9–6 that Myanmar's army committed genocide "
-        "against the Rohingya in 2017 — the first time any state has "
-        "been held responsible — and orders reparations.")
 
-HALVES = [
-    ("SHENZHEN · SUMMIT",
-     "Trump, Xi and Putin meet in first three-way summit",
-     "The three leaders issue a four-point 'Declaration toward Peace' "
-     "and agree to talk on nuclear risks.",
-     art_flags),
-    ("NEW YORK · MARKETS",
-     "Anthropic IPO is the biggest ever",
-     "$81.3bn raised at $83 a share; ANT opens at $111.50 and closes "
-     "at $97.17 on its first Nasdaq day.",
-     art_ipo),
-]
-
-THIRDS = [
-    ("GAZA · WAR",
-     "Israeli troops cross the ceasefire line",
-     "Rare ground operation beyond the Yellow Line; Hamas cries "
-     "ceasefire breach.",
-     art_gaza),
-    ("THE GULF · ENERGY",
-     "Iran widens its Gulf attacks",
-     "Kuwait and Bahrain hit; IEA calls it the greatest threat ever "
-     "to energy security.",
-     art_gulf),
-    ("DHAKA · UNREST",
-     "Yunus home torched as violence spreads",
-     "Arson and bomb blasts hit 28 districts as Hasina supporters "
-     "protest; troops deploy.",
-     art_dhaka),
-]
-
-PAIRS = [
-    ("VICE CITY · GAMES",
-     "GTA VI rolls out worldwide",
-     "The decade's most awaited game unlocks at midnight.",
-     art_vice),
-    ("NEW YORK · ART",
-     "Van Gogh sells for a record $190.4m",
-     "“Châtaigniers en fleurs” (1890) sets the artist's auction record.",
-     art_vangogh),
-]
-
-BRIEFS = [
-    "Crimea bridge hit again; traffic halted",
-    "EU proposes €45bn Ukraine loan; leaders meet in Berlin",
-    "Denmark approves Greenland–US security pact",
-    "US and Venezuela sign a military cooperation deal",
-    "North Korea expands uranium site, watchdog says",
-    "COP31 ministers race to unblock climate talks in Antalya",
-]
+def ipo_chart(d, x, y, w, h):
+    d.rectangle([x, y, x + w, y + h], fill=(255, 255, 255), outline=INK, width=1)
+    d.text((x + 10, y + 6), "$81.3bn  ·  $83 / share", font=font(SANS_B, 14), fill=RED)
+    d.text((x + 10, y + 26), "largest IPO in history", font=font(SANS, 13), fill=GRAY)
+    base = y + h - 24
+    vals = [("2021", 16, (170, 170, 170)), ("2023", 24, (140, 150, 190)),
+            ("2025", 34, (70, 90, 160)), ("ANT", 46, (176, 30, 36))]
+    bw = (w - 40) / 4
+    for i, (lab, bh, col) in enumerate(vals):
+        bx = x + 20 + i * bw
+        d.rectangle([bx, base - bh, bx + bw - 12, base], fill=col)
+        d.text((bx, base + 4), lab, font=font(SANS, 12), fill=INK)
 
 
 def main():
     img = Image.new("RGB", (W, H), PAPER)
     d = ImageDraw.Draw(img)
-    d.rectangle([8, 8, W - 9, H - 9], outline=INK, width=3)
+    d.rectangle([14, 14, 1010, 1010], outline=INK, width=3)
+    d.rectangle([20, 20, 1004, 1004], outline=INK, width=1)
 
-    # ---- masthead
-    d.text((W // 2, 20), "THE WORLD IN ONE DAY", font=font(SERIF, 52),
+    # Masthead
+    d.text((W / 2, 32), "THE WORLD IN ONE DAY", font=font(SERIF_B, 62),
            fill=INK, anchor="ma")
-    d.line([MARGIN, 84, W - MARGIN, 84], fill=INK, width=3)
-    d.text((W // 2, 92), "THURSDAY 19 NOVEMBER 2026",
-           font=font(SANS_B, 24), fill=RED, anchor="ma")
-    d.line([MARGIN, 124, W - MARGIN, 124], fill=INK, width=2)
+    rule(d, 106)
+    d.text((W / 2, 114), "THURSDAY 19 NOVEMBER 2026", font=font(SANS_B, 26),
+           fill=RED, anchor="ma")
+    d.text((W / 2, 150), "Eight stories from one day on Earth — The Hague · Gaza · "
+           "Shenzhen · New York · Crimea · Vice City · Paris · Brussels",
+           font=font(SANS, 15), fill=GRAY, anchor="ma")
 
-    # ---- lead: ICJ
-    ly = 136
-    lx0, lx1 = MARGIN, W - MARGIN
-    ax0 = 636
-    k, h, deck_t = LEAD
-    ty = ly + 4
-    ty = kick(d, lx0, ty, k, size=16)
-    ty = head(d, lx0, ty, ax0 - lx0 - 20, h, size=36)
-    deck(d, lx0, ty + 6, ax0 - lx0 - 20, deck_t, size=17)
-    clipped(img, d, art_scales, (ax0, ly, lx1, ly + 140))
-    y = 316
-    d.line([MARGIN, y, W - MARGIN, y], fill=RULE, width=1)
+    # Lead: ICJ verdict
+    kicker(d, 28, 178, "THE HAGUE · JUSTICE")
+    y = headline(d, 28, 200, "World court finds Myanmar guilty of genocide", 36, 566)
+    deck(d, 28, y + 6, "The court at The Hague rules Myanmar's army committed "
+         "genocide against the Rohingya and orders reparations.", 17, 566)
+    scales(d, 622, 178, 374, 162)
 
-    # ---- halves: Shenzhen + Anthropic
-    hy = y + 12
-    half_w = (W - 2 * MARGIN - GUT) // 2
-    for i, (k, h, deck_t, art) in enumerate(HALVES):
-        x0 = MARGIN + i * (half_w + GUT)
-        clipped(img, d, art, (x0, hy, x0 + half_w, hy + 84))
-        ty = kick(d, x0, hy + 92, k)
-        ty = head(d, x0, ty, half_w, h, size=24)
-        deck(d, x0, ty + 2, half_w, deck_t, size=15)
-    y = 540
-    d.line([MARGIN, y, W - MARGIN, y], fill=RULE, width=1)
+    rule(d, 364)
 
-    # ---- thirds: Gaza, Gulf, Bangladesh
-    ty3 = y + 12
-    third_w = (W - 2 * MARGIN - 2 * GUT) // 3
-    for i, (k, h, deck_t, art) in enumerate(THIRDS):
-        x0 = MARGIN + i * (third_w + GUT)
-        clipped(img, d, art, (x0, ty3, x0 + third_w, ty3 + 72))
-        yy = kick(d, x0, ty3 + 80, k, size=14)
-        yy = head(d, x0, yy, third_w, h, size=21)
-        deck(d, x0, yy + 2, third_w, deck_t, size=14)
-    y = 752
-    d.line([MARGIN, y, W - MARGIN, y], fill=RULE, width=1)
+    # Row 2: summit + IPO
+    flag_us(d, 28, 378, 148, 62)
+    flag_cn(d, 184, 378, 148, 62)
+    flag_ru(d, 340, 378, 148, 62)
+    d.text((28, 446), "TRUMP  ·  XI  ·  PUTIN", font=font(SANS_B, 14), fill=INK)
+    kicker(d, 28, 468, "SHENZHEN · SUMMIT")
+    y = headline(d, 28, 490, "Trump, Xi and Putin meet in rare trilateral summit", 24, 462)
+    deck(d, 28, y + 4, "The three leaders sat down together in Shenzhen.", 15, 462)
+    ipo_chart(d, 524, 378, 472, 92)
+    kicker(d, 524, 468, "NEW YORK · MARKETS")
+    y = headline(d, 524, 490, "Anthropic IPO is the biggest ever", 24, 472)
+    deck(d, 524, y + 4, "The $81.3bn listing at $83 a share is the largest ever.", 15, 472)
 
-    # ---- pairs: GTA VI + Van Gogh (art left, text right)
-    py = y + 12
-    ph = 124
-    for i, (k, h, deck_t, art) in enumerate(PAIRS):
-        x0 = MARGIN + i * (half_w + GUT)
-        clipped(img, d, art, (x0, py, x0 + 168, py + ph))
-        tx = x0 + 180
-        tw = half_w - 180
-        yy = kick(d, tx, py + 2, k, size=14)
-        yy = head(d, tx, yy, tw, h, size=22)
-        deck(d, tx, yy + 2, tw, deck_t, size=15)
-    y = py + ph
-    d.line([MARGIN, y + 10, W - MARGIN, y + 10], fill=RULE, width=1)
+    rule(d, 586)
 
-    # ---- also today
-    ay = y + 22
-    d.text((MARGIN, ay), "ALSO TODAY", font=font(SANS_B, 15), fill=RED)
-    ay += 25
-    col_w = (W - 2 * MARGIN - 24) // 2
-    for i, b in enumerate(BRIEFS):
-        bx = MARGIN + (i % 2) * (col_w + 24)
-        by = ay + (i // 2) * 20
-        d.rectangle([bx, by + 4, bx + 8, by + 12], fill=RED)
-        d.text((bx + 16, by), b, font=font(SERIF_R, 15), fill=INK)
+    # Row 3: three illustrated stories
+    cols = [(28, tank, "GAZA · WAR", "Israeli troops cross the ceasefire line",
+             "Israeli armour pushed past the Yellow Line in a rare ground operation."),
+            (360, bridge, "CRIMEA · ATTACK", "Kerch Bridge hit again; traffic halted",
+             "The bridge linking Crimea to Russia was attacked once more."),
+            (692, sunset, "VICE CITY · GAMES", "GTA VI rolls out worldwide",
+             "The long-awaited game begins its global rollout.")]
+    for x, art, kick, head, dk in cols:
+        art(d, x, 598, 304, 70)
+        kicker(d, x, 676, kick, 15)
+        y = headline(d, x, 698, head, 20, 304)
+        deck(d, x, y + 2, dk, 13, 304)
+
+    rule(d, 798)
+
+    # Row 4: Van Gogh + EU loan
+    blossom(d, 28, 810, 190, 104)
+    kicker(d, 236, 810, "PARIS · ART")
+    y = headline(d, 236, 832, "Van Gogh sells for a record $190.4m", 23, 264)
+    deck(d, 236, y + 4, "“Châtaigniers en fleurs” (1890) set the record at "
+         "Sotheby's.", 14, 264)
+    d.ellipse([524, 810, 578, 864], fill=NAVY)
+    d.text((551, 820), "€", font=font(SANS_B, 30), fill=(255, 255, 255), anchor="ma")
+    kicker(d, 592, 810, "BRUSSELS · EUROPE")
+    y = headline(d, 592, 832, "EU proposes a €45bn loan for Ukraine", 23, 404)
+    deck(d, 592, y + 4, "Brussels puts forward the loan as Kyiv seeks funds to "
+         "keep the war effort going.", 14, 404)
+
+    # Also today
+    rule(d, 942)
+    kicker(d, 28, 954, "ALSO TODAY")
+    items = ["Australia sanctions Israeli settlers",
+             "Cyclone Akvan nears India's coast",
+             "Russian held over Palantir spying"]
+    for i, item in enumerate(items):
+        x = 28 + i * 324
+        d.rectangle([x, 980, x + 9, 989], fill=RED)
+        d.text((x + 16, 976), item, font=font(SANS, 14), fill=INK)
 
     img.save("entry.png", optimize=True)
+    print("wrote entry.png", img.size)
 
 
 if __name__ == "__main__":

@@ -1,37 +1,23 @@
-"""news-image-20261119 — entry point.
+#!/usr/bin/env python3
+"""Entrypoint: copy the pre-rendered front page to the output directory.
 
-Ships the pre-rendered front page (entry.png, drawn offline by
-render.py) to the grader's output directory. Standard library only;
-no network, no clock, no randomness. The copy is byte-for-byte, so
-running this twice always produces identical output.
+The image is rendered at build time by render.py (PIL, DejaVu fonts) and
+shipped in this repository as entry.png, so the graded run needs only the
+standard library and is byte-identical every time.
 """
-
-import hashlib
 import os
-import pathlib
+import shutil
+import sys
 
-ROOT = pathlib.Path(__file__).resolve().parent
-SOURCE = ROOT / "entry.png"
-
-DEST_DIR = pathlib.Path(
-    os.environ.get("MAKEFUN_OUTPUT_DIR")
-    or os.environ.get("OUTPUT_DIR")
-    or "/output"
-)
-DEST = DEST_DIR / "entry.png"
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def run() -> None:
-    payload = SOURCE.read_bytes()
-    digest = hashlib.sha256(payload).hexdigest()
-    DEST_DIR.mkdir(parents=True, exist_ok=True)
-    DEST.write_bytes(payload)
-    check = DEST.read_bytes()
-    if hashlib.sha256(check).hexdigest() != digest:
-        raise RuntimeError("entry.png did not copy cleanly")
-    if len(check) > 1_048_576:
-        raise RuntimeError("entry.png exceeds the 1 MiB limit")
+def main():
+    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "out")
+    os.makedirs(out_dir, exist_ok=True)
+    shutil.copyfile(os.path.join(HERE, "entry.png"),
+                    os.path.join(out_dir, "entry.png"))
 
 
 if __name__ == "__main__":
-    run()
+    sys.exit(main())
